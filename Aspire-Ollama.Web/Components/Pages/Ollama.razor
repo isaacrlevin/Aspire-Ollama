@@ -1,0 +1,41 @@
+﻿@page "/ollama"
+@rendermode InteractiveServer
+@attribute [StreamRendering(true)]
+@using OllamaSharp
+@inject IOllamaApiClient ollama
+
+
+<h3>Ollama</h3>
+
+
+<input type="text" @bind="question" />
+<button class="btn btn-primary" @onclick="AskQuestion">Ask</button>
+
+<p role="status">Response: @chatResponse</p>
+
+@code {
+
+    string question = string.Empty;
+    string chatResponse = string.Empty;
+    Chat chat;
+    protected override async Task OnInitializedAsync()
+    {
+        var models = await ollama.ListLocalModels();
+
+        if (models != null && models.Count() > 0)
+        {
+            ollama.SelectedModel = models.FirstOrDefault().Name;
+            chat = new Chat(ollama);
+        }
+    }
+
+    private async Task AskQuestion()
+    {
+        chatResponse = string.Empty;
+
+        await foreach (var answerToken in chat.Send(question))
+        {
+            chatResponse += answerToken;
+        }
+    }
+}

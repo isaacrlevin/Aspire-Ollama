@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>f38db6b0-62d2-4976-9dc2-fdb41e48f285</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aspire-Ollama.ApiService\Aspire-Ollama.ApiService.csproj" />
+    <ProjectReference Include="..\Aspire-Ollama.Web\Aspire-Ollama.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="8.2.1" />
+    <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ollama" Version="8.3.0" />
+  </ItemGroup>
+
+</Project>
