@@ -1,41 +1,150 @@
-﻿@page "/ollama"
+﻿@page "/"
+@using Microsoft.Extensions.AI
 @rendermode InteractiveServer
-@attribute [StreamRendering(true)]
-@using OllamaSharp
-@inject IOllamaApiClient ollama
 
-
-<h3>Ollama</h3>
-
-
-<input type="text" @bind="question" />
-<button class="btn btn-primary" @onclick="AskQuestion">Ask</button>
-
-<p role="status">Response: @chatResponse</p>
+<div class="container">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="mb-3 text-center">Chat with AI Models</h3>
+            <InputRadioGroup @bind-Value="_selectedClient">
+                <div class="d-flex gap-4 justify-content-center">
+                    <InputRadio Value="@ServiceKeys.Phi3" /> @(OllamaClient1.GetService<ChatClientMetadata>()?.DefaultModelId)
+                    <InputRadio Value="@ServiceKeys.Llama" /> @(OllamaClient2.GetService<ChatClientMetadata>()?.DefaultModelId)
+                </div>
+            </InputRadioGroup>
+        </div>
+        <div class="card-body vh-75 overflow-auto">
+            @foreach (var msg in _messages)
+            {
+                <div class="d-flex mb-3 @(msg.IsUser ? "justify-content-end" : "")">
+                    <div class="p-3 rounded @(msg.IsUser ? "bg-primary text-white" : "bg-light")">
+                        @msg.Content
+                    </div>
+                </div>
+            }
+            @if (_isTyping)
+            {
+                <div class="d-flex mb-3">
+                    <div class="bg-light p-3 rounded-3">
+                        <div class="d-flex gap-1">
+                            <div class="spinner-grow spinner-grow-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div class="spinner-grow spinner-grow-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <div class="spinner-grow spinner-grow-sm" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="card-footer">
+            <div class="input-group">
+                <textarea @bind="_prompt"
+                          @bind:event="oninput"
+                          class="form-control"
+                          placeholder="Type your message here..."></textarea>
+                @if (_isTyping)
+                {
+                    <button class="btn btn-danger" @onclick="CancelResponse">Stop</button>
+                }
+                else
+                {
+                    <button class="btn btn-primary"
+                            @onclick="GetPrompt"
+                            disabled="@(string.IsNullOrEmpty(_selectedClient))">
+                        Send
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
 
 @code {
+    private string _prompt = "";
+    private bool _isTyping = false;
+    private string? _selectedClient;
+    private List<ResponseMessage> _messages = new();
+    private CancellationTokenSource? _cts;
 
-    string question = string.Empty;
-    string chatResponse = string.Empty;
-    Chat chat;
-    protected override async Task OnInitializedAsync()
+    [Inject(Key = ServiceKeys.Phi3)]
+    public required IChatClient OllamaClient1 { get; set; }
+
+    [Inject(Key = ServiceKeys.Llama)]
+    public required IChatClient OllamaClient2 { get; set; }
+
+    private record ResponseMessage(string Content, bool IsUser);
+
+    private void CancelResponse()
     {
-        var models = await ollama.ListLocalModels();
-
-        if (models != null && models.Count() > 0)
-        {
-            ollama.SelectedModel = models.FirstOrDefault().Name;
-            chat = new Chat(ollama);
-        }
+        _cts?.Cancel();
+        _cts = null;
+        _isTyping = false;
     }
 
-    private async Task AskQuestion()
+    private async Task GetPrompt()
     {
-        chatResponse = string.Empty;
+        if (string.IsNullOrWhiteSpace(_prompt) || _isTyping) return;
 
-        await foreach (var answerToken in chat.Send(question))
+        var client = _selectedClient switch
         {
-            chatResponse += answerToken;
+            ServiceKeys.Phi3 => OllamaClient1,
+            ServiceKeys.Llama => OllamaClient2,
+            _ => null
+        };
+
+        if (client is null)
+        {
+            _messages.Add(new ResponseMessage("Please select a model first.", false));
+            StateHasChanged();
+            return;
+        }
+
+        var userMessage = new ResponseMessage(_prompt.Trim(), true);
+        _messages.Add(userMessage);
+        _prompt = "";
+        StateHasChanged();
+
+        _isTyping = true;
+        _cts = new CancellationTokenSource();
+        StateHasChanged();
+
+        try
+        {
+            Microsoft.Extensions.AI.ChatMessage m = new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, userMessage.Content);
+            var responseContent = "";
+            var stream = client.GetStreamingResponseAsync(m, null, _cts.Token);
+
+            await foreach (var answerToken in stream.WithCancellation(_cts.Token))
+            {
+                responseContent += answerToken.Text;
+                if (_messages.Count > 0 && !_messages[^1].IsUser)
+                {
+                    _messages[^1] = new ResponseMessage(responseContent, false);
+                }
+                else
+                {
+                    _messages.Add(new ResponseMessage(responseContent, false));
+                }
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (_messages.Count > 0 && !_messages[^1].IsUser)
+            {
+                _messages[^1] = new ResponseMessage(_messages[^1].Content + " [Cancelled]", false);
+            }
+        }
+        finally
+        {
+            _isTyping = false;
+            _cts = null;
+            StateHasChanged();
         }
     }
 }
